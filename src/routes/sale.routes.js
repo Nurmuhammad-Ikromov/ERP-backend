@@ -15,5 +15,6 @@ router.get('/daily-summary', ctrl.dailySummary);
 router.get('/monthly-summary', ctrl.monthlySummary);
 router.get('/yearly-summary', ctrl.yearlySummary);
 router.get('/:id', ctrl.getOne);
+router.get('/:id/receipt', ctrl.getReceipt);
 
 module.exports = router;

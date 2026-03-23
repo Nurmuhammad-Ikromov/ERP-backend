@@ -1,6 +1,7 @@
 'use strict';
 
 const saleService = require('../services/sale.service');
+const { formatReceipt } = require('../utils/receipt');
 const asyncHandler = require('../utils/asyncHandler');
 
 // Strip profit-related fields from a sale object for kassir role
@@ -21,7 +22,8 @@ const stripProfit = (sale) => {
 const create = asyncHandler(async (req, res) => {
   const sale = await saleService.createSale(req.body, req.user._id);
   const data = req.user.role === 'seller' ? stripProfit(sale) : sale;
-  res.status(201).json({ status: 'success', data: { sale: data } });
+  const receipt = formatReceipt(sale);
+  res.status(201).json({ status: 'success', data: { sale: data, receipt } });
 });
 
 const list = asyncHandler(async (req, res) => {
@@ -57,4 +59,10 @@ const yearlySummary = asyncHandler(async (req, res) => {
   res.json({ status: 'success', data: result });
 });
 
-module.exports = { create, list, getOne, dailySummary, monthlySummary, yearlySummary };
+const getReceipt = asyncHandler(async (req, res) => {
+  const sale = await saleService.getById(req.params.id);
+  const receipt = formatReceipt(sale);
+  res.json({ status: 'success', data: { receipt } });
+});
+
+module.exports = { create, list, getOne, getReceipt, dailySummary, monthlySummary, yearlySummary };

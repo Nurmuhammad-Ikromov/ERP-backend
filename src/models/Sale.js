@@ -83,6 +83,8 @@ const saleSchema = new mongoose.Schema(
       ref: 'DebtAccount',
     },
 
+    receiptNumber: { type: String, unique: true, sparse: true },
+
     note: { type: String, maxlength: 500 },
     saleDate: { type: Date, default: Date.now, index: true },
   },

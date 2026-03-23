@@ -2,6 +2,7 @@
 
 const Product = require('../models/Product');
 const Sale = require('../models/Sale');
+const Counter = require('../models/Counter');
 const DebtAccount = require('../models/DebtAccount');
 const DebtTransaction = require('../models/DebtTransaction');
 const DailyCashLog = require('../models/DailyCashLog');
@@ -249,6 +250,10 @@ const createSale = async (data, sellerId) => {
     debtAccountId = debtAccount._id;
   }
 
+  // ── Generate receipt number ────────────────────────────────
+  const seq = await Counter.nextSeq('receipt');
+  const receiptNumber = `CHK-${String(seq).padStart(6, '0')}`;
+
   // ── Create sale record ─────────────────────────────────────
   const sale = await Sale.create({
     seller: sellerId,
@@ -263,6 +268,7 @@ const createSale = async (data, sellerId) => {
     paidAmount: paid,
     debtAmount,
     debtAccount: debtAccountId,
+    receiptNumber,
     note,
     saleDate: saleDate || new Date(),
   });
@@ -299,6 +305,7 @@ const createSale = async (data, sellerId) => {
     await cashboxService.addCardFromSale(total, sale._id, sellerId);
   }
 
+  await sale.populate('seller', 'fullName username');
   return sale;
 };
 
