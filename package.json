@@ -18,7 +18,9 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.0.3",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "node-thermal-printer": "^4.6.0",
+    "printer": "^0.4.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

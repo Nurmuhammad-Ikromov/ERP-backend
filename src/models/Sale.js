@@ -51,7 +51,7 @@ const saleSchema = new mongoose.Schema(
     // debt  → recorded in reports only, does not touch cashbox
     paymentType: {
       type: String,
-      enum: ['cash', 'card', 'debt'],
+      enum: ['cash', 'card', 'debt', 'mixed'],
       required: true,
     },
     currency: {
@@ -74,6 +74,8 @@ const saleSchema = new mongoose.Schema(
     total: { type: Number, required: true, min: 0 },
     // Pre-computed total profit for this sale (sum of item profitSnapshots)
     totalProfit: { type: Number, default: 0 },
+    cashPaid: { type: Number, default: 0, min: 0 },
+    cardPaid: { type: Number, default: 0, min: 0 },
     paidAmount: { type: Number, default: 0, min: 0 },
     debtAmount: { type: Number, default: 0, min: 0 },
 

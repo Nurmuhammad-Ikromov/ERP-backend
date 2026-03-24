@@ -5,8 +5,37 @@ const DebtTransaction = require('../models/DebtTransaction');
 const cashboxService = require('./cashbox.service');
 const AppError = require('../utils/AppError');
 
+const buildSortObject = (sort = '-debtCreatedAt') => {
+  const tokens = String(sort)
+    .split(/[,\s]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  const sortObject = {};
+  for (const token of tokens) {
+    if (token.startsWith('-')) {
+      sortObject[token.slice(1)] = -1;
+    } else {
+      sortObject[token] = 1;
+    }
+  }
+
+  if (!Object.keys(sortObject).length) {
+    sortObject.debtCreatedAt = -1;
+  }
+
+  return sortObject;
+};
+
 const listCustomers = async (query = {}) => {
-  const { page = 1, limit = 50, sort = '-balance', search } = query;
+  const {
+    page = 1,
+    limit: rawLimit,
+    pageSize,
+    sort = '-debtCreatedAt',
+    search,
+  } = query;
+  const limit = Number(rawLimit || pageSize || 50);
   const filter = {};
   if (search) {
     filter.$or = [
@@ -14,14 +43,53 @@ const listCustomers = async (query = {}) => {
       { customerPhone: new RegExp(search, 'i') },
     ];
   }
-  const skip = (Number(page) - 1) * Number(limit);
+  const skip = (Number(page) - 1) * limit;
+  const sortStage = buildSortObject(sort);
 
   const [accounts, total] = await Promise.all([
-    DebtAccount.find(filter).sort(sort).skip(skip).limit(Number(limit)),
+    DebtAccount.aggregate([
+      { $match: filter },
+      {
+        $lookup: {
+          from: 'debttransactions',
+          let: { debtAccountId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$debtAccount', '$$debtAccountId'] },
+                    { $eq: ['$type', 'created'] },
+                  ],
+                },
+              },
+            },
+            { $sort: { date: -1, createdAt: -1 } },
+            { $limit: 1 },
+            { $project: { _id: 0, debtCreatedAt: '$date' } },
+          ],
+          as: 'latestDebtTx',
+        },
+      },
+      {
+        $addFields: {
+          debtCreatedAt: {
+            $ifNull: [
+              { $arrayElemAt: ['$latestDebtTx.debtCreatedAt', 0] },
+              '$createdAt',
+            ],
+          },
+        },
+      },
+      { $project: { latestDebtTx: 0 } },
+      { $sort: sortStage },
+      { $skip: skip },
+      { $limit: limit },
+    ]),
     DebtAccount.countDocuments(filter),
   ]);
 
-  return { accounts, total, page: Number(page), limit: Number(limit) };
+  return { accounts, total, page: Number(page), limit };
 };
 
 const getCustomer = async (id) => {

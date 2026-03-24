@@ -19,4 +19,13 @@ module.exports = {
     : process.env.CORS_ORIGINS
       ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
       : '*',
+  PRINTER_NAME: process.env.PRINTER_NAME || 'XP-80',
+  PRINTER_INTERFACE: process.env.PRINTER_INTERFACE || '',
+  PRINTER_DRIVER: process.env.PRINTER_DRIVER || 'printer',
+  PRINTER_CHARACTER_SET: process.env.PRINTER_CHARACTER_SET || 'PC866_CYRILLIC2',
+  PRINTER_WINDOWS_MODE: process.env.PRINTER_WINDOWS_MODE || 'gdi',
+  PRINTER_AUTO_CUT: process.env.PRINTER_AUTO_CUT || 'true',
+  PRINTER_CUT_FEED_LINES: parseInt(process.env.PRINTER_CUT_FEED_LINES, 10) || 6,
+  PRINTER_CUT_MODE: process.env.PRINTER_CUT_MODE || 'full',
+  SHOP_NAME: process.env.SHOP_NAME || 'MUNAVVAR TONG',
 };

@@ -1,6 +1,7 @@
 'use strict';
 
 const Product = require('../models/Product');
+const StockEntry = require('../models/StockEntry');
 const AppError = require('../utils/AppError');
 
 const buildFilter = ({ search, type, category, isActive }) => {
@@ -122,6 +123,16 @@ const archive = async (id) => {
   return product;
 };
 
+const remove = async (id) => {
+  const product = await Product.findById(id).select('_id name');
+  if (!product) throw new AppError('Product not found', 404);
+
+  await StockEntry.deleteMany({ product: product._id });
+  await Product.deleteOne({ _id: product._id });
+
+  return product;
+};
+
 const search = async (q) => {
   if (!q) return [];
   const products = await Product.find({
@@ -135,4 +146,4 @@ const search = async (q) => {
   return products;
 };
 
-module.exports = { list, getById, getByBarcode, create, update, archive, search };
+module.exports = { list, getById, getByBarcode, create, update, archive, remove, search };

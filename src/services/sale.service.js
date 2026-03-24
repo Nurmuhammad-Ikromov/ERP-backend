@@ -9,6 +9,13 @@ const DailyCashLog = require('../models/DailyCashLog');
 const cashboxService = require('./cashbox.service');
 const AppError = require('../utils/AppError');
 const { dayBounds, toDateString } = require('../utils/dateUtils');
+const {
+  buildCardPaidExpr,
+  buildCashPaidExpr,
+  buildDebtAmountExpr,
+  buildPaymentLabel,
+  resolveSalePayments,
+} = require('../utils/salePayment');
 
 /* ────────────────────────────────────────────────────────────
    Internal helper: resolve one sale item line against product
@@ -167,21 +174,14 @@ const ensureTodayLog = async () => {
 const createSale = async (data, sellerId) => {
   const {
     items: rawItems,
-    paymentType,
     currency = 'UZS',
     customerName,
     customerPhone,
-    paidAmount = 0,
     note,
     saleDate,
   } = data;
 
   // ── Validate debt fields ──────────────────────────────────
-  if (paymentType === 'debt') {
-    if (!customerName || !customerPhone) {
-      throw new AppError('customerName and customerPhone are required for debt sales', 400);
-    }
-  }
 
   // ── Resolve each item ─────────────────────────────────────
   const productIds = rawItems.map((i) => i.productId);
@@ -210,9 +210,12 @@ const createSale = async (data, sellerId) => {
   const total = subtotal;
   const totalProfit = builtItems.reduce((s, i) => s + i.profitSnapshot, 0);
 
-  // cash and card are fully paid; debt is fully owed
-  const paid = (paymentType === 'cash' || paymentType === 'card') ? total : paidAmount;
-  const debtAmount = paymentType === 'debt' ? total : 0;
+  // Resolve the payment breakdown against the exact sale total.
+  const payments = resolveSalePayments(data, total);
+
+  if (payments.debtAmount > 0 && (!customerName || !customerPhone)) {
+    throw new AppError('customerName and customerPhone are required when debt remains', 400);
+  }
 
   // ── Apply stock deductions to products ────────────────────
   for (const { product, stockDeduction, bagsDeduction, costDeducted } of deductions) {
@@ -239,13 +242,13 @@ const createSale = async (data, sellerId) => {
 
   // ── Handle debt account if needed ─────────────────────────
   let debtAccountId = null;
-  if (debtAmount > 0) {
+  if (payments.debtAmount > 0) {
     let debtAccount = await DebtAccount.findOne({ customerPhone });
     if (!debtAccount) {
       debtAccount = await DebtAccount.create({ customerName, customerPhone, currency });
     }
-    debtAccount.totalDebt += debtAmount;
-    debtAccount.balance += debtAmount;
+    debtAccount.totalDebt += payments.debtAmount;
+    debtAccount.balance += payments.debtAmount;
     await debtAccount.save();
     debtAccountId = debtAccount._id;
   }
@@ -259,14 +262,16 @@ const createSale = async (data, sellerId) => {
     seller: sellerId,
     customerName,
     customerPhone,
-    paymentType,
+    paymentType: payments.paymentType,
     currency,
     items: builtItems,
     subtotal,
     total,
     totalProfit,
-    paidAmount: paid,
-    debtAmount,
+    cashPaid: payments.cashPaid,
+    cardPaid: payments.cardPaid,
+    paidAmount: payments.paidAmount,
+    debtAmount: payments.debtAmount,
     debtAccount: debtAccountId,
     receiptNumber,
     note,
@@ -274,35 +279,32 @@ const createSale = async (data, sellerId) => {
   });
 
   // ── Create debt transaction if debt exists ────────────────
-  if (debtAmount > 0 && debtAccountId) {
+  if (payments.debtAmount > 0 && debtAccountId) {
     const debtAccount = await DebtAccount.findById(debtAccountId);
     await DebtTransaction.create({
       debtAccount: debtAccountId,
       sale: sale._id,
       type: 'created',
-      amount: debtAmount,
+      amount: payments.debtAmount,
       balanceAfter: debtAccount.balance,
-      note: `Sale on ${paymentType}`,
+      note: `Sale on ${buildPaymentLabel(payments)}`,
       createdBy: sellerId,
     });
   }
 
   // ── Update today's cash log ────────────────────────────────
   const todayLog = await ensureTodayLog();
-  if (paymentType === 'cash') {
-    todayLog.totalCashSales += total;
-  } else if (paymentType === 'card') {
-    todayLog.totalCardSales += total;
-  } else if (paymentType === 'debt') {
-    todayLog.totalDebtSales += total;
-  }
+  todayLog.totalCashSales += payments.cashPaid;
+  todayLog.totalCardSales += payments.cardPaid;
+  todayLog.totalDebtSales += payments.debtAmount;
   await todayLog.save();
 
   // ── Update cashbox balance (cash sales only) ──────────────
-  if (paymentType === 'cash') {
-    await cashboxService.addCashFromSale(total, sale._id, sellerId);
-  } else if (paymentType === 'card') {
-    await cashboxService.addCardFromSale(total, sale._id, sellerId);
+  if (payments.cashPaid > 0) {
+    await cashboxService.addCashFromSale(payments.cashPaid, sale._id, sellerId);
+  }
+  if (payments.cardPaid > 0) {
+    await cashboxService.addCardFromSale(payments.cardPaid, sale._id, sellerId);
   }
 
   await sale.populate('seller', 'fullName username');
@@ -351,15 +353,9 @@ const dailySummary = async (date) => {
       $group: {
         _id: null,
         totalSales: { $sum: '$total' },
-        totalCash: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'cash'] }, '$total', 0] },
-        },
-        totalCard: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'card'] }, '$total', 0] },
-        },
-        totalDebt: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'debt'] }, '$total', 0] },
-        },
+        totalCash: { $sum: buildCashPaidExpr() },
+        totalCard: { $sum: buildCardPaidExpr() },
+        totalDebt: { $sum: buildDebtAmountExpr() },
         count: { $sum: 1 },
       },
     },
@@ -375,15 +371,9 @@ const monthlySummary = async (year, month) => {
       $group: {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$saleDate' } },
         totalSales: { $sum: '$total' },
-        totalCash: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'cash'] }, '$total', 0] },
-        },
-        totalCard: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'card'] }, '$total', 0] },
-        },
-        totalDebt: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'debt'] }, '$total', 0] },
-        },
+        totalCash: { $sum: buildCashPaidExpr() },
+        totalCard: { $sum: buildCardPaidExpr() },
+        totalDebt: { $sum: buildDebtAmountExpr() },
         count: { $sum: 1 },
       },
     },
@@ -411,15 +401,9 @@ const yearlySummary = async (year) => {
       $group: {
         _id: { $month: '$saleDate' },
         totalSales: { $sum: '$total' },
-        totalCash: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'cash'] }, '$total', 0] },
-        },
-        totalCard: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'card'] }, '$total', 0] },
-        },
-        totalDebt: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'debt'] }, '$total', 0] },
-        },
+        totalCash: { $sum: buildCashPaidExpr() },
+        totalCard: { $sum: buildCardPaidExpr() },
+        totalDebt: { $sum: buildDebtAmountExpr() },
         count: { $sum: 1 },
       },
     },

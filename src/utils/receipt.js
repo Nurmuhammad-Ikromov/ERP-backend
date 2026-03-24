@@ -1,10 +1,6 @@
 'use strict';
 
-const PAYMENT_LABELS = {
-  cash: 'Naqd pul',
-  card: 'Karta',
-  debt: 'Qarz',
-};
+const { buildPaymentBreakdown, buildPaymentLabel } = require('./salePayment');
 
 /**
  * Builds a structured receipt object from a Sale document.
@@ -46,11 +42,14 @@ const formatReceipt = (sale) => {
     time: timeStr,
     seller: sellerName,
     paymentType: sale.paymentType,
-    paymentLabel: PAYMENT_LABELS[sale.paymentType] || sale.paymentType,
+    paymentLabel: buildPaymentLabel(sale),
+    paymentBreakdown: buildPaymentBreakdown(sale),
     currency: sale.currency,
     items,
     subtotal: sale.subtotal,
     total: sale.total,
+    cashPaid: sale.cashPaid || 0,
+    cardPaid: sale.cardPaid || 0,
     paidAmount: sale.paidAmount,
     debtAmount: sale.debtAmount,
     customerName: sale.customerName || null,

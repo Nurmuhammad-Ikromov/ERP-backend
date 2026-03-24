@@ -40,4 +40,9 @@ const archive = asyncHandler(async (req, res) => {
   res.json({ status: 'success', data: { product } });
 });
 
-module.exports = { list, getOne, getByBarcode, search, create, update, archive };
+const remove = asyncHandler(async (req, res) => {
+  const product = await productService.remove(req.params.id);
+  res.json({ status: 'success', data: { product } });
+});
+
+module.exports = { list, getOne, getByBarcode, search, create, update, archive, remove };

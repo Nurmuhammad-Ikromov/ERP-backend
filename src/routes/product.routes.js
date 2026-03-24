@@ -19,5 +19,6 @@ router.get('/:id', ctrl.getOne);
 router.post('/', authorize('admin'), createProductRules, validate, ctrl.create);
 router.patch('/:id', authorize('admin'), updateProductRules, validate, ctrl.update);
 router.patch('/:id/archive', authorize('admin'), ctrl.archive);
+router.delete('/:id', authorize('admin'), ctrl.remove);
 
 module.exports = router;

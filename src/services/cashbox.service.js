@@ -8,6 +8,11 @@ const DailyCashLog = require('../models/DailyCashLog');
 const Sale = require('../models/Sale');
 const AppError = require('../utils/AppError');
 const { dayBounds, toDateString } = require('../utils/dateUtils');
+const {
+  buildCardPaidExpr,
+  buildCashPaidExpr,
+  buildDebtAmountExpr,
+} = require('../utils/salePayment');
 
 /* ─────────────────────────────────────────────────────────────
    Internal helper: get or create today's DailyCashLog entry
@@ -168,15 +173,9 @@ const getSummary = async () => {
         $group: {
           _id: null,
           totalSales: { $sum: '$total' },
-          cashSales: {
-            $sum: { $cond: [{ $eq: ['$paymentType', 'cash'] }, '$total', 0] },
-          },
-          cardSales: {
-            $sum: { $cond: [{ $eq: ['$paymentType', 'card'] }, '$total', 0] },
-          },
-          debtSales: {
-            $sum: { $cond: [{ $eq: ['$paymentType', 'debt'] }, '$total', 0] },
-          },
+          cashSales: { $sum: buildCashPaidExpr() },
+          cardSales: { $sum: buildCardPaidExpr() },
+          debtSales: { $sum: buildDebtAmountExpr() },
         },
       },
     ]),

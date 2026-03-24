@@ -6,6 +6,11 @@ const DebtAccount = require('../models/DebtAccount');
 const DailyCashLog = require('../models/DailyCashLog');
 const Cashbox = require('../models/Cashbox');
 const { dayBounds, monthBounds, yearBounds, toDateString } = require('../utils/dateUtils');
+const {
+  buildCardPaidExpr,
+  buildCashPaidExpr,
+  buildDebtAmountExpr,
+} = require('../utils/salePayment');
 
 /* ── Dashboard ─────────────────────────────────────────────── */
 const dashboard = async () => {
@@ -29,15 +34,9 @@ const dashboard = async () => {
           _id: null,
           total: { $sum: '$total' },
           totalProfit: { $sum: '$totalProfit' },
-          cash: {
-            $sum: { $cond: [{ $eq: ['$paymentType', 'cash'] }, '$total', 0] },
-          },
-          card: {
-            $sum: { $cond: [{ $eq: ['$paymentType', 'card'] }, '$total', 0] },
-          },
-          debt: {
-            $sum: { $cond: [{ $eq: ['$paymentType', 'debt'] }, '$total', 0] },
-          },
+          cash: { $sum: buildCashPaidExpr() },
+          card: { $sum: buildCardPaidExpr() },
+          debt: { $sum: buildDebtAmountExpr() },
           count: { $sum: 1 },
         },
       },
@@ -231,15 +230,9 @@ const salesBySeller = async ({ dateFrom, dateTo }) => {
       $group: {
         _id: '$seller',
         totalSales: { $sum: '$total' },
-        totalCash: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'cash'] }, '$total', 0] },
-        },
-        totalCard: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'card'] }, '$total', 0] },
-        },
-        totalDebt: {
-          $sum: { $cond: [{ $eq: ['$paymentType', 'debt'] }, '$total', 0] },
-        },
+        totalCash: { $sum: buildCashPaidExpr() },
+        totalCard: { $sum: buildCardPaidExpr() },
+        totalDebt: { $sum: buildDebtAmountExpr() },
         count: { $sum: 1 },
       },
     },
@@ -309,9 +302,12 @@ const dailyReport = async (date) => {
       { $match: { saleDate: { $gte: start, $lte: end } } },
       {
         $group: {
-          _id: '$paymentType',
-          total: { $sum: '$total' },
-          profit: { $sum: '$totalProfit' },
+          _id: null,
+          totalSales: { $sum: '$total' },
+          totalProfit: { $sum: '$totalProfit' },
+          cash: { $sum: buildCashPaidExpr() },
+          card: { $sum: buildCardPaidExpr() },
+          debt: { $sum: buildDebtAmountExpr() },
           count: { $sum: 1 },
         },
       },
@@ -342,15 +338,14 @@ const dailyReport = async (date) => {
     ]),
   ]);
 
-  const summary = { totalSales: 0, totalProfit: 0, cash: 0, card: 0, debt: 0, count: 0 };
-  for (const row of saleSummary) {
-    summary.totalSales += row.total;
-    summary.totalProfit += row.profit;
-    if (row._id === 'cash') summary.cash += row.total;
-    else if (row._id === 'card') summary.card += row.total;
-    else if (row._id === 'debt') summary.debt += row.total;
-    summary.count += row.count;
-  }
+  const summary = saleSummary[0] || {
+    totalSales: 0,
+    totalProfit: 0,
+    cash: 0,
+    card: 0,
+    debt: 0,
+    count: 0,
+  };
 
   return { date: dateKey, summary, cashLog, itemsSold };
 };
@@ -366,9 +361,9 @@ const monthlyReport = async (year, month) => {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$saleDate' } },
         totalSales: { $sum: '$total' },
         totalProfit: { $sum: '$totalProfit' },
-        cash: { $sum: { $cond: [{ $eq: ['$paymentType', 'cash'] }, '$total', 0] } },
-        card: { $sum: { $cond: [{ $eq: ['$paymentType', 'card'] }, '$total', 0] } },
-        debt: { $sum: { $cond: [{ $eq: ['$paymentType', 'debt'] }, '$total', 0] } },
+        cash: { $sum: buildCashPaidExpr() },
+        card: { $sum: buildCardPaidExpr() },
+        debt: { $sum: buildDebtAmountExpr() },
         count: { $sum: 1 },
       },
     },
@@ -401,9 +396,9 @@ const yearlyReport = async (year) => {
         _id: { $month: '$saleDate' },
         totalSales: { $sum: '$total' },
         totalProfit: { $sum: '$totalProfit' },
-        cash: { $sum: { $cond: [{ $eq: ['$paymentType', 'cash'] }, '$total', 0] } },
-        card: { $sum: { $cond: [{ $eq: ['$paymentType', 'card'] }, '$total', 0] } },
-        debt: { $sum: { $cond: [{ $eq: ['$paymentType', 'debt'] }, '$total', 0] } },
+        cash: { $sum: buildCashPaidExpr() },
+        card: { $sum: buildCardPaidExpr() },
+        debt: { $sum: buildDebtAmountExpr() },
         count: { $sum: 1 },
       },
     },

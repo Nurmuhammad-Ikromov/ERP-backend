@@ -4,12 +4,25 @@ const { body } = require('express-validator');
 
 const createSaleRules = [
   body('paymentType')
-    .isIn(['cash', 'card', 'debt'])
-    .withMessage('paymentType must be cash, card, or debt'),
+    .optional()
+    .isIn(['cash', 'card', 'debt', 'mixed'])
+    .withMessage('paymentType must be cash, card, debt, or mixed'),
   body('currency').optional().isIn(['UZS', 'USD']),
   body('items')
     .isArray({ min: 1 })
     .withMessage('items must be a non-empty array'),
+  body().custom((value) => {
+    const hasPaymentInfo =
+      value.paymentType != null ||
+      value.cashPaid != null ||
+      value.cardPaid != null ||
+      value.debtAmount != null;
+
+    if (!hasPaymentInfo) {
+      throw new Error('payment information is required');
+    }
+    return true;
+  }),
   body('items.*.productId')
     .notEmpty()
     .isMongoId()
@@ -19,6 +32,9 @@ const createSaleRules = [
   body('items.*.weightKg').optional().isFloat({ min: 0 }),
   body('items.*.amountMoney').optional().isFloat({ min: 0 }),
   body('items.*.bagsCount').optional().isInt({ min: 0 }),
+  body('cashPaid').optional().isFloat({ min: 0 }),
+  body('cardPaid').optional().isFloat({ min: 0 }),
+  body('debtAmount').optional().isFloat({ min: 0 }),
   body('paidAmount').optional().isFloat({ min: 0 }),
   body('customerName').optional().trim().isLength({ max: 200 }),
   body('customerPhone').optional().trim().isLength({ max: 20 }),
