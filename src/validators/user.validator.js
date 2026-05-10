@@ -4,24 +4,14 @@ const { body } = require('express-validator');
 
 const createUserRules = [
   body('fullName').trim().notEmpty().withMessage('fullName is required'),
-  body('username')
-    .trim()
-    .notEmpty()
-    .isLength({ min: 3, max: 50 })
-    .matches(/^[a-zA-Z0-9_]+$/),
+  body('username').trim().notEmpty().isLength({ min: 1, max: 50 }),
   body('password').notEmpty(),
   body('role').optional().isIn(['admin', 'seller']),
 ];
 
 const updateUserRules = [
   body('fullName').optional().trim().notEmpty().isLength({ max: 100 }),
-  body('username')
-    .optional()
-    .trim()
-    .notEmpty()
-    .isLength({ min: 3, max: 50 })
-    .matches(/^[a-zA-Z0-9_]+$/)
-    .withMessage('username can only contain letters, numbers, and underscores'),
+  body('username').optional().trim().notEmpty().isLength({ min: 1, max: 50 }),
   body('password').optional(),
   body('role').optional().isIn(['admin', 'seller']),
 ];
