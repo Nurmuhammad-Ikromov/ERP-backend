@@ -9,7 +9,7 @@ const createUserRules = [
     .notEmpty()
     .isLength({ min: 3, max: 50 })
     .matches(/^[a-zA-Z0-9_]+$/),
-  body('password').notEmpty().isLength({ min: 6 }),
+  body('password').notEmpty(),
   body('role').optional().isIn(['admin', 'seller']),
 ];
 
@@ -22,7 +22,7 @@ const updateUserRules = [
     .isLength({ min: 3, max: 50 })
     .matches(/^[a-zA-Z0-9_]+$/)
     .withMessage('username can only contain letters, numbers, and underscores'),
-  body('password').optional().isLength({ min: 6 }).withMessage('password must be at least 6 characters'),
+  body('password').optional(),
   body('role').optional().isIn(['admin', 'seller']),
 ];
 
