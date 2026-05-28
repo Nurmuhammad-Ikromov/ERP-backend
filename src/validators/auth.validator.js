@@ -14,8 +14,8 @@ const registerRules = [
   body('password')
     .notEmpty()
     .withMessage('password is required')
-    .isLength({ min: 6 })
-    .withMessage('password must be at least 6 characters'),
+    .isLength({ min: 4 })
+    .withMessage('password must be at least 4 characters'),
   body('role').optional().isIn(['admin', 'seller']).withMessage('role must be admin or seller'),
 ];
 
@@ -24,4 +24,11 @@ const loginRules = [
   body('password').notEmpty().withMessage('password is required'),
 ];
 
-module.exports = { registerRules, loginRules };
+const changePasswordRules = [
+  body('currentPassword').notEmpty().withMessage('currentPassword is required'),
+  body('newPassword')
+    .notEmpty().withMessage('newPassword is required')
+    .isLength({ min: 4 }).withMessage('newPassword must be at least 4 characters'),
+];
+
+module.exports = { registerRules, loginRules, changePasswordRules };

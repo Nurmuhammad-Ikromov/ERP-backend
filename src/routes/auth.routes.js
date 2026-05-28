@@ -4,7 +4,7 @@ const router = require('express').Router();
 const ctrl = require('../controllers/auth.controller');
 const { authenticate } = require('../middlewares/auth.middleware');
 const { validate } = require('../middlewares/validate.middleware');
-const { registerRules, loginRules } = require('../validators/auth.validator');
+const { registerRules, loginRules, changePasswordRules } = require('../validators/auth.validator');
 const { authorize } = require('../middlewares/role.middleware');
 
 // First admin can be created via /register (admin-only after initial seed)
@@ -13,5 +13,6 @@ router.post('/register', authenticate, authorize('admin'), registerRules, valida
 router.post('/login', loginRules, validate, ctrl.login);
 router.get('/me', authenticate, ctrl.me);
 router.post('/logout', authenticate, ctrl.logout);
+router.post('/change-password', authenticate, changePasswordRules, validate, ctrl.changePassword);
 
 module.exports = router;

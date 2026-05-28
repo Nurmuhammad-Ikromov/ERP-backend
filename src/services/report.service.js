@@ -144,26 +144,41 @@ const dashboard = async () => {
 
 /* ── Inventory report ──────────────────────────────────────── */
 const inventory = async () => {
-  const products = await Product.find({ isActive: true })
+  const rawProducts = await Product.find({ isActive: true })
     .select(
-      'name sku barcode type category unitLabel salePrice averageCostPrice stockQuantity stockWeightKg bagsCount kgPerBag totalStockValue lowStockThreshold'
+      'name sku barcode type category unitLabel salePrice bagSalePrice hasBags averageCostPrice stockQuantity stockWeightKg bagsCount kgPerBag totalStockValue lowStockThreshold'
     )
-    .sort('name');
+    .sort('name')
+    .lean();
 
-  const [totals] = await Product.aggregate([
-    { $match: { isActive: true } },
-    {
-      $group: {
-        _id: null,
-        totalInventoryValue: { $sum: '$totalStockValue' },
-        totalProducts: { $sum: 1 },
-      },
-    },
-  ]);
+  // Calculate sale value per product:
+  // - unit: stockQuantity × salePrice
+  // - weight with bags: bagsCount × bagSalePrice + remainingKg × salePrice
+  // - weight without bags: stockWeightKg × salePrice
+  const products = rawProducts.map((p) => {
+    let totalSaleValue = 0;
+    if (p.type === 'unit') {
+      totalSaleValue = (p.stockQuantity || 0) * (p.salePrice || 0);
+    } else {
+      const hasBagPrice = p.hasBags && p.bagsCount > 0 && p.kgPerBag > 0 && p.bagSalePrice > 0;
+      if (hasBagPrice) {
+        const bagKg = p.bagsCount * p.kgPerBag;
+        const remainingKg = Math.max(0, (p.stockWeightKg || 0) - bagKg);
+        totalSaleValue = p.bagsCount * p.bagSalePrice + remainingKg * (p.salePrice || 0);
+      } else {
+        totalSaleValue = (p.stockWeightKg || 0) * (p.salePrice || 0);
+      }
+    }
+    return { ...p, totalSaleValue };
+  });
+
+  const totalInventoryValue = products.reduce((s, p) => s + (p.totalStockValue || 0), 0);
+  const totalSaleValue = products.reduce((s, p) => s + p.totalSaleValue, 0);
+  const totalProducts = products.length;
 
   return {
     products,
-    totals: totals || { totalInventoryValue: 0, totalProducts: 0 },
+    totals: { totalInventoryValue, totalSaleValue, totalProducts },
   };
 };
 

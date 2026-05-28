@@ -6,6 +6,8 @@ const Counter = require('../models/Counter');
 const DebtAccount = require('../models/DebtAccount');
 const DebtTransaction = require('../models/DebtTransaction');
 const DailyCashLog = require('../models/DailyCashLog');
+const Cashbox = require('../models/Cashbox');
+const CashboxTransaction = require('../models/CashboxTransaction');
 const cashboxService = require('./cashbox.service');
 const AppError = require('../utils/AppError');
 const { dayBounds, toDateString } = require('../utils/dateUtils');
@@ -237,6 +239,9 @@ const createSale = async (data, sellerId) => {
       }
     }
 
+    // Increment sold counter
+    product.soldCount = (product.soldCount || 0) + 1;
+
     await product.save();
   }
 
@@ -312,11 +317,16 @@ const createSale = async (data, sellerId) => {
 };
 
 const list = async (query = {}) => {
-  const { page = 1, limit = 50, sort = '-saleDate', paymentType, sellerId, dateFrom, dateTo } = query;
+  const { page = 1, limit = 50, sort = '-saleDate', paymentType, sellerId, date, dateFrom, dateTo } = query;
   const filter = {};
   if (paymentType) filter.paymentType = paymentType;
   if (sellerId) filter.seller = sellerId;
-  if (dateFrom || dateTo) {
+
+  // Single date filter (e.g. ?date=2026-05-26) — full day bounds
+  if (date) {
+    const { start, end } = dayBounds(new Date(date));
+    filter.saleDate = { $gte: start, $lte: end };
+  } else if (dateFrom || dateTo) {
     filter.saleDate = {};
     if (dateFrom) filter.saleDate.$gte = new Date(dateFrom);
     if (dateTo) filter.saleDate.$lte = new Date(dateTo);
@@ -423,4 +433,116 @@ const yearlySummary = async (year) => {
   return { byMonth: data, totals };
 };
 
-module.exports = { createSale, list, getById, dailySummary, monthlySummary, yearlySummary };
+/* ────────────────────────────────────────────────────────────
+   voidSale — Admin-only: fully reverses a sale.
+
+   Steps:
+   1. Restore product stock + WAC for every item
+   2. Reverse cashbox balances (cash & card)
+   3. Subtract from DailyCashLog for the sale's date
+   4. Reduce DebtAccount balance & delete DebtTransaction (if debt sale)
+   5. Delete the sale document
+────────────────────────────────────────────────────────────── */
+const voidSale = async (saleId, adminId) => {
+  const sale = await Sale.findById(saleId);
+  if (!sale) throw new AppError('Sotuv topilmadi', 404);
+
+  // ── 1. Restore stock for each item ────────────────────────
+  for (const item of sale.items) {
+    const product = await Product.findById(item.product);
+    if (!product) continue; // deleted product — skip stock restore
+
+    const qty = item.productTypeSnapshot === 'unit' ? item.quantity : item.weightKg;
+    const restoredCost = (item.costPriceSnapshot || 0) * qty;
+
+    if (item.productTypeSnapshot === 'unit') {
+      product.stockQuantity += item.quantity;
+    } else {
+      product.stockWeightKg += item.weightKg;
+      // Restore bags
+      if (product.kgPerBag > 0) {
+        if (item.bagsCount > 0) {
+          product.bagsCount = (product.bagsCount || 0) + item.bagsCount;
+        } else {
+          product.bagsCount = Math.floor(product.stockWeightKg / product.kgPerBag);
+        }
+      }
+    }
+
+    product.totalStockValue = (product.totalStockValue || 0) + restoredCost;
+
+    const currentStock =
+      product.type === 'unit' ? product.stockQuantity : product.stockWeightKg;
+    if (currentStock > 0) {
+      product.averageCostPrice = product.totalStockValue / currentStock;
+    }
+
+    // Decrement sold counter
+    product.soldCount = Math.max(0, (product.soldCount || 0) - 1);
+
+    await product.save();
+  }
+
+  // ── 2. Reverse cashbox balances ────────────────────────────
+  const cashbox = await Cashbox.getOrCreate();
+
+  if (sale.cashPaid > 0) {
+    const balanceBefore = cashbox.currentBalance;
+    cashbox.currentBalance = Math.max(0, cashbox.currentBalance - sale.cashPaid);
+    await cashbox.save();
+
+    await CashboxTransaction.create({
+      type: 'adjustment',
+      amount: -sale.cashPaid,
+      balanceBefore,
+      balanceAfter: cashbox.currentBalance,
+      relatedSale: sale._id,
+      createdBy: adminId,
+      note: `Sotuv bekor qilindi: ${sale.receiptNumber || saleId}`,
+    });
+  }
+
+  if (sale.cardPaid > 0) {
+    const balanceBefore = cashbox.cardBalance;
+    cashbox.cardBalance = Math.max(0, cashbox.cardBalance - sale.cardPaid);
+    await cashbox.save();
+
+    await CashboxTransaction.create({
+      type: 'adjustment',
+      amount: -sale.cardPaid,
+      balanceBefore,
+      balanceAfter: cashbox.cardBalance,
+      relatedSale: sale._id,
+      createdBy: adminId,
+      note: `Karta sotuvi bekor qilindi: ${sale.receiptNumber || saleId}`,
+    });
+  }
+
+  // ── 3. Update DailyCashLog for the sale's date ─────────────
+  const saleDateKey = toDateString(new Date(sale.saleDate));
+  const dailyLog = await DailyCashLog.findOne({ dateKey: saleDateKey });
+  if (dailyLog) {
+    dailyLog.totalCashSales  = Math.max(0, (dailyLog.totalCashSales  || 0) - (sale.cashPaid   || 0));
+    dailyLog.totalCardSales  = Math.max(0, (dailyLog.totalCardSales  || 0) - (sale.cardPaid   || 0));
+    dailyLog.totalDebtSales  = Math.max(0, (dailyLog.totalDebtSales  || 0) - (sale.debtAmount || 0));
+    await dailyLog.save();
+  }
+
+  // ── 4. Reverse debt account if applicable ─────────────────
+  if (sale.debtAmount > 0 && sale.debtAccount) {
+    const debtAccount = await DebtAccount.findById(sale.debtAccount);
+    if (debtAccount) {
+      debtAccount.balance   = Math.max(0, debtAccount.balance   - sale.debtAmount);
+      debtAccount.totalDebt = Math.max(0, debtAccount.totalDebt - sale.debtAmount);
+      await debtAccount.save();
+    }
+    await DebtTransaction.deleteMany({ sale: sale._id });
+  }
+
+  // ── 5. Delete the sale ─────────────────────────────────────
+  await Sale.findByIdAndDelete(saleId);
+
+  return { receiptNumber: sale.receiptNumber, total: sale.total };
+};
+
+module.exports = { createSale, list, getById, dailySummary, monthlySummary, yearlySummary, voidSale };

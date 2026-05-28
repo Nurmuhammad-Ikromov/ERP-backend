@@ -3,6 +3,7 @@
 const router = require('express').Router();
 const ctrl = require('../controllers/sale.controller');
 const { authenticate } = require('../middlewares/auth.middleware');
+const { authorize } = require('../middlewares/role.middleware');
 const { validate } = require('../middlewares/validate.middleware');
 const { createSaleRules } = require('../validators/sale.validator');
 
@@ -16,5 +17,8 @@ router.get('/monthly-summary', ctrl.monthlySummary);
 router.get('/yearly-summary', ctrl.yearlySummary);
 router.get('/:id', ctrl.getOne);
 router.get('/:id/receipt', ctrl.getReceipt);
+
+// Admin-only: void (reverse) a sale
+router.patch('/:id/void', authorize('admin'), ctrl.voidSale);
 
 module.exports = router;

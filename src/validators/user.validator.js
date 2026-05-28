@@ -20,4 +20,10 @@ const updateStatusRules = [
   body('isActive').isBoolean().withMessage('isActive must be true or false'),
 ];
 
-module.exports = { createUserRules, updateUserRules, updateStatusRules };
+const resetPasswordRules = [
+  body('newPassword')
+    .notEmpty().withMessage('newPassword is required')
+    .isLength({ min: 4 }).withMessage('newPassword must be at least 4 characters'),
+];
+
+module.exports = { createUserRules, updateUserRules, updateStatusRules, resetPasswordRules };

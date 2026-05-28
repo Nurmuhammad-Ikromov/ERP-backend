@@ -3,6 +3,7 @@
 const User = require('../models/User');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
+const { signToken } = require('../services/auth.service');
 
 const list = asyncHandler(async (req, res) => {
   const { role, isActive, page = 1, limit = 50 } = req.query;
@@ -62,4 +63,33 @@ const updateStatus = asyncHandler(async (req, res) => {
   res.json({ status: 'success', data: { user } });
 });
 
-module.exports = { list, create, update, updateStatus };
+const impersonate = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id);
+  if (!user) throw new AppError('Foydalanuvchi topilmadi', 404);
+  if (!user.isActive) throw new AppError('Foydalanuvchi faol emas', 403);
+
+  const token = signToken(user._id, user.role);
+
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  res.json({ status: 'success', token, data: { user } });
+});
+
+const resetPassword = asyncHandler(async (req, res) => {
+  const { newPassword } = req.body;
+
+  const user = await User.findById(req.params.id).select('+passwordHash');
+  if (!user) throw new AppError('Foydalanuvchi topilmadi', 404);
+
+  user.passwordHash = newPassword;
+  await user.save();
+
+  res.json({ status: 'success', message: 'Parol muvaffaqiyatli tiklandi' });
+});
+
+module.exports = { list, create, update, updateStatus, resetPassword, impersonate };

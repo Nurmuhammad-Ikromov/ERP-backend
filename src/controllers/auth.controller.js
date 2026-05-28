@@ -1,6 +1,7 @@
 'use strict';
 
 const authService = require('../services/auth.service');
+const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
@@ -35,4 +36,19 @@ const logout = asyncHandler(async (req, res) => {
   res.status(200).json({ status: 'success', message: 'Logged out' });
 });
 
-module.exports = { register, login, me, logout };
+const changePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  const user = await User.findById(req.user._id).select('+passwordHash');
+  if (!user) throw new AppError('Foydalanuvchi topilmadi', 404);
+
+  const isMatch = await user.comparePassword(currentPassword);
+  if (!isMatch) throw new AppError('Joriy parol noto\'g\'ri', 400);
+
+  user.passwordHash = newPassword;
+  await user.save();
+
+  res.json({ status: 'success', message: 'Parol muvaffaqiyatli o\'zgartirildi' });
+});
+
+module.exports = { register, login, me, logout, changePassword };

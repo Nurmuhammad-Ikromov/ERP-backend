@@ -65,4 +65,13 @@ const getReceipt = asyncHandler(async (req, res) => {
   res.json({ status: 'success', data: { receipt } });
 });
 
-module.exports = { create, list, getOne, getReceipt, dailySummary, monthlySummary, yearlySummary };
+const voidSale = asyncHandler(async (req, res) => {
+  const result = await saleService.voidSale(req.params.id, req.user._id);
+  res.json({
+    status: 'success',
+    message: `${result.receiptNumber || 'Sotuv'} bekor qilindi`,
+    data: result,
+  });
+});
+
+module.exports = { create, list, getOne, getReceipt, dailySummary, monthlySummary, yearlySummary, voidSale };

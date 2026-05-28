@@ -19,12 +19,56 @@ const buildFilter = ({ search, type, category, isActive }) => {
   return filter;
 };
 
+// Returns { start, end } for the full day of a date string
+const dayBounds = (dateStr) => {
+  const d = new Date(dateStr);
+  return {
+    start: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0),
+    end:   new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999),
+  };
+};
+
 const list = async (query = {}) => {
-  const { page = 1, limit = 50, sort = '-createdAt', ...filters } = query;
+  const { page = 1, limit = 50, sort = '-createdAt', date, ...filters } = query;
   const filter = buildFilter(filters);
   const skip = (Number(page) - 1) * Number(limit);
 
-  const [products, total] = await Promise.all([
+  // ── Date filter: restrict to products that had a StockEntry on that day ──
+  let entryMap = null; // productId → { totalQty, totalKg, totalBags, totalCost }
+
+  if (date) {
+    const { start, end } = dayBounds(date);
+
+    // Aggregate all stock entries for that day
+    const entries = await StockEntry.aggregate([
+      { $match: { date: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: '$product',
+          totalQuantityAdded: { $sum: '$quantityAdded' },
+          totalWeightKgAdded: { $sum: '$weightKgAdded' },
+          totalBagsAdded:     { $sum: '$bagsAdded' },
+          totalCost:          { $sum: '$totalCost' },
+          entriesCount:       { $sum: 1 },
+        },
+      },
+    ]);
+
+    if (entries.length === 0) {
+      return { products: [], total: 0, page: Number(page), limit: Number(limit) };
+    }
+
+    entryMap = {};
+    const productIds = entries.map((e) => {
+      entryMap[e._id.toString()] = e;
+      return e._id;
+    });
+
+    // Restrict products to those that received stock on this date
+    filter._id = { $in: productIds };
+  }
+
+  const [rawProducts, total] = await Promise.all([
     Product.find(filter)
       .populate('createdBy', 'fullName username')
       .sort(sort)
@@ -32,6 +76,15 @@ const list = async (query = {}) => {
       .limit(Number(limit)),
     Product.countDocuments(filter),
   ]);
+
+  // Attach dateEntry summary when date filter is active
+  const products = entryMap
+    ? rawProducts.map((p) => {
+        const obj = p.toObject();
+        obj.dateEntry = entryMap[p._id.toString()] || null;
+        return obj;
+      })
+    : rawProducts;
 
   return { products, total, page: Number(page), limit: Number(limit) };
 };
