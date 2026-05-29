@@ -128,6 +128,14 @@ const productSchema = new mongoose.Schema(
       min: 0,
     },
 
+    // ── Sales counter ─────────────────────────────────────────────
+    // Incremented on each sale line, decremented on void. Used for POS sort.
+    soldCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
     isActive: {
       type: Boolean,
       default: true,
