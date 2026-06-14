@@ -2,8 +2,11 @@
 
 const DebtAccount = require('../models/DebtAccount');
 const DebtTransaction = require('../models/DebtTransaction');
+const Counter = require('../models/Counter');
 const cashboxService = require('./cashbox.service');
 const AppError = require('../utils/AppError');
+const { dayBounds } = require('../utils/dateUtils');
+const { formatRepaymentReceipt } = require('../utils/receipt');
 
 const buildSortObject = (sort = '-debtCreatedAt') => {
   const tokens = String(sort)
@@ -117,11 +120,16 @@ const recordRepayment = async ({ debtAccountId, amount, note, paymentMethod, isC
   account.balance -= amount;
   await account.save();
 
+  const seq = await Counter.nextSeq('repayment');
+  const receiptNumber = `NSY-${String(seq).padStart(6, '0')}`;
+
   const tx = await DebtTransaction.create({
     debtAccount: account._id,
     type: isCorrection ? 'correction' : 'payment',
     amount,
     balanceAfter: account.balance,
+    paymentMethod: isCorrection ? null : (paymentMethod || 'cash'),
+    receiptNumber: isCorrection ? null : receiptNumber,
     note,
     createdBy: userId,
   });
@@ -132,7 +140,49 @@ const recordRepayment = async ({ debtAccountId, amount, note, paymentMethod, isC
     await cashboxService.addCardFromDebtRepayment(amount, tx._id, userId);
   }
 
-  return { account, transaction: tx };
+  const populatedTx = await DebtTransaction.findById(tx._id)
+    .populate('createdBy', 'fullName username');
+  const receipt = isCorrection ? null : formatRepaymentReceipt(populatedTx, account);
+
+  return { account, transaction: tx, receipt };
+};
+
+const listRepayments = async (query = {}) => {
+  const { date, dateFrom, dateTo, page = 1, limit = 500 } = query;
+  const filter = { type: 'payment' };
+
+  if (date) {
+    const { start, end } = dayBounds(new Date(date));
+    filter.date = { $gte: start, $lte: end };
+  } else if (dateFrom || dateTo) {
+    filter.date = {};
+    if (dateFrom) filter.date.$gte = new Date(dateFrom);
+    if (dateTo) filter.date.$lte = new Date(dateTo);
+  }
+
+  const skip = (Number(page) - 1) * Number(limit);
+  const [repayments, total] = await Promise.all([
+    DebtTransaction.find(filter)
+      .populate('debtAccount', 'customerName customerPhone balance currency')
+      .populate('createdBy', 'fullName username')
+      .sort('-date')
+      .skip(skip)
+      .limit(Number(limit)),
+    DebtTransaction.countDocuments(filter),
+  ]);
+
+  return { repayments, total, page: Number(page), limit: Number(limit) };
+};
+
+const getRepaymentReceipt = async (txId) => {
+  const tx = await DebtTransaction.findById(txId)
+    .populate('debtAccount', 'customerName customerPhone balance currency')
+    .populate('createdBy', 'fullName username');
+  if (!tx) throw new AppError('Repayment transaction not found', 404);
+  if (tx.type !== 'payment') throw new AppError('Not a repayment transaction', 400);
+
+  const receipt = formatRepaymentReceipt(tx, tx.debtAccount);
+  return { receipt };
 };
 
 const getHistory = async (debtAccountId, query = {}) => {
@@ -171,4 +221,4 @@ const summary = async () => {
   return result || { totalOutstanding: 0, activeDebtors: 0, totalAccounts: 0 };
 };
 
-module.exports = { listCustomers, getCustomer, recordRepayment, getHistory, summary };
+module.exports = { listCustomers, getCustomer, recordRepayment, listRepayments, getRepaymentReceipt, getHistory, summary };

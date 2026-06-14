@@ -3,6 +3,7 @@
 const Sale = require('../models/Sale');
 const Product = require('../models/Product');
 const DebtAccount = require('../models/DebtAccount');
+const DebtTransaction = require('../models/DebtTransaction');
 const DailyCashLog = require('../models/DailyCashLog');
 const Cashbox = require('../models/Cashbox');
 const { dayBounds, monthBounds, yearBounds, toDateString } = require('../utils/dateUtils');
@@ -11,6 +12,26 @@ const {
   buildCashPaidExpr,
   buildDebtAmountExpr,
 } = require('../utils/salePayment');
+
+const repaymentsByPeriod = async (dateFilter) => {
+  const [result] = await DebtTransaction.aggregate([
+    { $match: { type: 'payment', ...dateFilter } },
+    {
+      $group: {
+        _id: null,
+        totalRepayments: { $sum: '$amount' },
+        cashRepayments: {
+          $sum: { $cond: [{ $eq: ['$paymentMethod', 'cash'] }, '$amount', 0] },
+        },
+        cardRepayments: {
+          $sum: { $cond: [{ $eq: ['$paymentMethod', 'card'] }, '$amount', 0] },
+        },
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+  return result || { totalRepayments: 0, cashRepayments: 0, cardRepayments: 0, count: 0 };
+};
 
 /* ── Dashboard ─────────────────────────────────────────────── */
 const dashboard = async () => {
@@ -312,7 +333,7 @@ const dailyReport = async (date) => {
   const { start, end } = dayBounds(date);
   const dateKey = toDateString(date);
 
-  const [saleSummary, cashLog, itemsSold] = await Promise.all([
+  const [saleSummary, cashLog, itemsSold, repayments] = await Promise.all([
     Sale.aggregate([
       { $match: { saleDate: { $gte: start, $lte: end } } },
       {
@@ -351,6 +372,7 @@ const dailyReport = async (date) => {
       },
       { $sort: { totalProfit: -1 } },
     ]),
+    repaymentsByPeriod({ date: { $gte: start, $lte: end } }),
   ]);
 
   const summary = saleSummary[0] || {
@@ -362,27 +384,30 @@ const dailyReport = async (date) => {
     count: 0,
   };
 
-  return { date: dateKey, summary, cashLog, itemsSold };
+  return { date: dateKey, summary, cashLog, itemsSold, repayments };
 };
 
 /* ── Monthly report ─────────────────────────────────────────── */
 const monthlyReport = async (year, month) => {
   const { start, end } = monthBounds(year, month);
 
-  const data = await Sale.aggregate([
-    { $match: { saleDate: { $gte: start, $lte: end } } },
-    {
-      $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$saleDate' } },
-        totalSales: { $sum: '$total' },
-        totalProfit: { $sum: '$totalProfit' },
-        cash: { $sum: buildCashPaidExpr() },
-        card: { $sum: buildCardPaidExpr() },
-        debt: { $sum: buildDebtAmountExpr() },
-        count: { $sum: 1 },
+  const [data, repayments] = await Promise.all([
+    Sale.aggregate([
+      { $match: { saleDate: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$saleDate' } },
+          totalSales: { $sum: '$total' },
+          totalProfit: { $sum: '$totalProfit' },
+          cash: { $sum: buildCashPaidExpr() },
+          card: { $sum: buildCardPaidExpr() },
+          debt: { $sum: buildDebtAmountExpr() },
+          count: { $sum: 1 },
+        },
       },
-    },
-    { $sort: { _id: 1 } },
+      { $sort: { _id: 1 } },
+    ]),
+    repaymentsByPeriod({ date: { $gte: start, $lte: end } }),
   ]);
 
   const totals = data.reduce(
@@ -397,27 +422,30 @@ const monthlyReport = async (year, month) => {
     { totalSales: 0, totalProfit: 0, cash: 0, card: 0, debt: 0, count: 0 }
   );
 
-  return { year, month, byDay: data, totals };
+  return { year, month, byDay: data, totals, repayments };
 };
 
 /* ── Yearly report ──────────────────────────────────────────── */
 const yearlyReport = async (year) => {
   const { start, end } = yearBounds(year);
 
-  const data = await Sale.aggregate([
-    { $match: { saleDate: { $gte: start, $lte: end } } },
-    {
-      $group: {
-        _id: { $month: '$saleDate' },
-        totalSales: { $sum: '$total' },
-        totalProfit: { $sum: '$totalProfit' },
-        cash: { $sum: buildCashPaidExpr() },
-        card: { $sum: buildCardPaidExpr() },
-        debt: { $sum: buildDebtAmountExpr() },
-        count: { $sum: 1 },
+  const [data, repayments] = await Promise.all([
+    Sale.aggregate([
+      { $match: { saleDate: { $gte: start, $lte: end } } },
+      {
+        $group: {
+          _id: { $month: '$saleDate' },
+          totalSales: { $sum: '$total' },
+          totalProfit: { $sum: '$totalProfit' },
+          cash: { $sum: buildCashPaidExpr() },
+          card: { $sum: buildCardPaidExpr() },
+          debt: { $sum: buildDebtAmountExpr() },
+          count: { $sum: 1 },
+        },
       },
-    },
-    { $sort: { _id: 1 } },
+      { $sort: { _id: 1 } },
+    ]),
+    repaymentsByPeriod({ date: { $gte: start, $lte: end } }),
   ]);
 
   const totals = data.reduce(
@@ -432,7 +460,7 @@ const yearlyReport = async (year) => {
     { totalSales: 0, totalProfit: 0, cash: 0, card: 0, debt: 0, count: 0 }
   );
 
-  return { year, byMonth: data, totals };
+  return { year, byMonth: data, totals, repayments };
 };
 
 /* ── Profit by product ──────────────────────────────────────── */

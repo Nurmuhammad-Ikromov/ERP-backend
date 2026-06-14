@@ -26,6 +26,12 @@ const debtTransactionSchema = new mongoose.Schema(
     },
     // Running balance snapshot after this transaction
     balanceAfter: { type: Number, default: 0 },
+    paymentMethod: {
+      type: String,
+      enum: ['cash', 'card', null],
+      default: null,
+    },
+    receiptNumber: { type: String, default: null },
     note: { type: String, maxlength: 500 },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

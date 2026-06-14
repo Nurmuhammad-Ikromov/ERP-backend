@@ -28,4 +28,14 @@ const summary = asyncHandler(async (req, res) => {
   res.json({ status: 'success', data: result });
 });
 
-module.exports = { listCustomers, getCustomer, repayment, history, summary };
+const listRepayments = asyncHandler(async (req, res) => {
+  const result = await debtService.listRepayments(req.query);
+  res.json({ status: 'success', data: result });
+});
+
+const getRepaymentReceipt = asyncHandler(async (req, res) => {
+  const result = await debtService.getRepaymentReceipt(req.params.txId);
+  res.json({ status: 'success', data: result });
+});
+
+module.exports = { listCustomers, getCustomer, repayment, history, summary, listRepayments, getRepaymentReceipt };

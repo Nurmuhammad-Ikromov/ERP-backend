@@ -10,6 +10,8 @@ const { repaymentRules } = require('../validators/debt.validator');
 router.use(authenticate);
 
 router.get('/summary', authorize('admin'), ctrl.summary);
+router.get('/repayments', ctrl.listRepayments);
+router.get('/repayment/:txId/receipt', ctrl.getRepaymentReceipt);
 router.get('/customers', ctrl.listCustomers);
 router.get('/customers/:id', ctrl.getCustomer);
 router.get('/history/:customerId', ctrl.history);
